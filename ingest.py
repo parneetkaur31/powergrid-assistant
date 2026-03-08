@@ -4,7 +4,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.stores import InMemoryStore
 from langchain.retrievers import ParentDocumentRetriever
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.embeddings import HuggingFaceEmbeddings
 
 DOCS_PATH = "docs"
 VECTOR_PATH = "vectorstore"
