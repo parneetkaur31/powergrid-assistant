@@ -7,6 +7,8 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import RetrievalQA
+from rank_bm25 import BM25Okapi
+from langchain.schema import Document
 
 VECTOR_PATH = "vectorstore"
 
@@ -16,17 +18,21 @@ embeddings = HuggingFaceEmbeddings(
 
 
 def load_retriever():
+
     vectorstore = FAISS.load_local(
         VECTOR_PATH,
         embeddings,
         allow_dangerous_deserialization=True
     )
 
-    retriever = vectorstore.as_retriever(
+    vector_retriever = vectorstore.as_retriever(
         search_kwargs={"k": 4}
     )
 
-    return retriever
+    docs = vectorstore.similarity_search("", k=100)
+    bm25, texts = build_bm25(docs)
+
+    return vector_retriever, bm25, texts, docs
 
 
 def build_chain():
@@ -46,17 +52,76 @@ def build_chain():
     return qa
 
 
+def generate_hypothetical_answer(query):
+
+    llm = ChatOpenAI(temperature=0)
+
+    prompt = f"""
+    Write a short technical explanation that answers the question.
+
+    Question: {query}
+
+    Hypothetical answer:
+    """
+
+    response = llm.invoke(prompt)
+
+    return response.content
+
+
 def ask_question(query):
 
-    qa = build_chain()
+    hyde_query = generate_hypothetical_answer(query)
+    docs = hybrid_search(hyde_query)
 
-    result = qa({"query": query})
+    context = "\n\n".join([d.page_content for d in docs])
 
-    answer = result["result"]
+    prompt = f"""
+    Answer the question using the following context.
+
+    Context:
+    {context}
+
+    Question: {query}
+    """
+
+    llm = ChatOpenAI(temperature=0)
+
+    answer = llm.invoke(prompt)
 
     sources = set()
 
-    for doc in result["source_documents"]:
-        sources.add(doc.metadata.get("source", "document"))
+    for doc in docs:
+        if "source" in doc.metadata:
+            sources.add(os.path.basename(doc.metadata["source"]))
 
-    return answer, sources
+    return answer.content, sources
+
+
+def build_bm25(docs):
+    texts = [doc.page_content for doc in docs]
+    tokenized = [text.split() for text in texts]
+
+    bm25 = BM25Okapi(tokenized)
+
+    return bm25, texts
+
+
+def hybrid_search(query):
+
+    vector_retriever, bm25, texts, docs = load_retriever()
+
+    vector_docs = vector_retriever.get_relevant_documents(query)
+
+    tokenized_query = query.split()
+    bm25_scores = bm25.get_scores(tokenized_query)
+
+    top_indices = sorted(
+        range(len(bm25_scores)),
+        key=lambda i: bm25_scores[i],
+        reverse=True
+    )[:3]
+
+    bm25_docs = [docs[i] for i in top_indices]
+
+    return vector_docs + bm25_docs
