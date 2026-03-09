@@ -8,7 +8,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
 from rank_bm25 import BM25Okapi
-from langchain.schema import Document
+from langchain_core.documents import Document
 
 VECTOR_PATH = "vectorstore"
 
